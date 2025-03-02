@@ -1,7 +1,7 @@
-import { Form, useNavigation } from "react-router";
+import { Form, useNavigation } from 'react-router';
 
-import logoDark from "./logo-dark.svg";
-import logoLight from "./logo-light.svg";
+import logoDark from './logo-dark.svg';
+import logoLight from './logo-light.svg';
 
 export function Welcome({
   guestBook,
@@ -61,7 +61,7 @@ export function Welcome({
               method="post"
               className="space-y-4 w-full max-w-lg"
               onSubmit={(event) => {
-                if (navigation.state === "submitting") {
+                if (navigation.state === 'submitting') {
                   event.preventDefault();
                 }
                 const form = event.currentTarget;
@@ -87,7 +87,7 @@ export function Welcome({
               />
               <button
                 type="submit"
-                disabled={navigation.state === "submitting"}
+                disabled={navigation.state === 'submitting'}
                 className="w-full h-10 px-3 text-white bg-blue-500 rounded-lg hover:bg-blue-600"
               >
                 Sign Guest Book
@@ -115,8 +115,8 @@ export function Welcome({
 
 const resources = [
   {
-    href: "https://reactrouter.com/docs",
-    text: "React Router Docs",
+    href: 'https://reactrouter.com/docs',
+    text: 'React Router Docs',
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -135,8 +135,8 @@ const resources = [
     ),
   },
   {
-    href: "https://rmx.as/discord",
-    text: "Join Discord",
+    href: 'https://rmx.as/discord',
+    text: 'Join Discord',
     icon: (
       <svg
         xmlns="http://www.w3.org/2000/svg"

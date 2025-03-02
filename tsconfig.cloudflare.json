@@ -8,7 +8,8 @@
     "database/**/*",
     "workers/**/*",
     "load-context.ts",
-    "worker-configuration.d.ts"
+    "worker-configuration.d.ts",
+    "app/components/ui/**/*"
   ],
   "compilerOptions": {
     "composite": true,
