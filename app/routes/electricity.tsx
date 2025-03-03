@@ -325,7 +325,7 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
                       setOpen(true);
                       form.setValue('date', item.date);
                       form.setValue('electricity', item.electricity.toString());
-                      form.setValue('diff', item.diff || 0);
+                      form.setValue('diff', item.diff?.toString() || '');
                       setEditId(item.id);
                     }}
                   >
