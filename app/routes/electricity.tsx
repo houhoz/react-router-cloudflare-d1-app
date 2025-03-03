@@ -4,7 +4,11 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import * as React from 'react';
+import { format } from 'date-fns';
+import { Calendar as CalendarIcon, Loader } from 'lucide-react';
+import { cn } from '~/lib/utils';
 import * as schema from '~/database/schema';
+
 import { Button } from '~/components/ui/button';
 import {
   Form,
@@ -25,23 +29,49 @@ import {
   TableHeader,
   TableRow,
 } from '~/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '~/components/ui/dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '~/components/ui/popover';
+import { Calendar } from '~/components/ui/calendar';
+
 import type { Route } from './+types/electricity';
 import { toast } from 'sonner';
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: 'New React Router App' },
-    { name: 'description', content: 'Welcome to React Router!' },
+    { title: '电费记录 - React Router App' },
+    { name: 'description', content: '记录每日用电量' },
   ];
 }
 
 const formSchema = z.object({
-  date: z.string().min(2, {
-    message: '请输入正确的日期',
-  }),
-  electricity: z.string().min(2, {
-    message: '请输入正确的电量',
-  }),
+  date: z
+    .string()
+    .min(1, {
+      message: '请选择日期',
+    })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, {
+      message: '日期格式不正确，应为 YYYY-MM-DD',
+    }),
+  electricity: z
+    .string()
+    .min(1, {
+      message: '请输入电量',
+    })
+    .regex(/^\d+(\.\d{1,2})?$/, {
+      message: '请输入有效的数字，最多支持两位小数',
+    }),
 });
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -57,9 +87,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   console.log('existing', existing);
 
   if (existing) {
-    // toast.error('该日期已存在');
     return data({ message: '该日期已存在' }, { status: 400 });
-    // return data({ message: '该日期已存在' }, { status: 400 });
   }
 
   try {
@@ -89,9 +117,9 @@ export async function loader({ context }: Route.LoaderArgs) {
 
 export default function Home({ actionData, loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher();
+  const [open, setOpen] = React.useState(false);
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-
     defaultValues: {
       date: '',
       electricity: '',
@@ -100,15 +128,16 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
 
   // 添加 useEffect 监听 fetcher 状态变化
   React.useEffect(() => {
-    if (fetcher.data && fetcher.state === 'idle') {
-      if (fetcher.data.success) {
-        toast.success(fetcher.data.message);
-        form.reset(); // 成功后重置表单
-      } else {
+    if (fetcher.state === 'idle') {
+      if (fetcher.data) {
         toast.error(fetcher.data.message);
+      } else {
+        toast.success('提交成功');
+        form.reset(); // 成功后重置表单
+        setOpen(false); // 关闭对话框
       }
     }
-  }, [fetcher.data, fetcher.state, form]);
+  }, [fetcher.data, fetcher.state]);
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
     fetcher.submit(data, {
@@ -117,62 +146,135 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
   };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold">Electricity</h1>
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          <FormField
-            control={form.control}
-            name="date"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>日期</FormLabel>
-                <FormControl>
-                  <Input placeholder="请输入正确的日期" {...field} />
-                </FormControl>
-                <FormDescription>正确的日期格式为：2025-01-01</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="electricity"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>电量</FormLabel>
-                <FormControl>
-                  <Input placeholder="请输入正确的电量" {...field} />
-                </FormControl>
-                <FormDescription>正确的电量格式为：100</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <Button type="submit">提交</Button>
-        </form>
-      </Form>
-      <Table>
-        <TableCaption>A list of your recent invoices.</TableCaption>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[100px]">ID</TableHead>
-            <TableHead>日期</TableHead>
-            <TableHead>电量</TableHead>
-            <TableHead className="text-right">差值</TableHead>
-          </TableRow>
-        </TableHeader>
-        {loaderData.list.map((item) => (
-          <TableBody key={item.id}>
+    <div className="container mx-auto py-8 px-4">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">电费记录</h1>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              新增记录
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>新增每日用电量</DialogTitle>
+              <DialogDescription>请选择日期并输入电量数据</DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-6"
+              >
+                <FormField
+                  control={form.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>日期</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={'outline'}
+                              className={cn(
+                                'w-full pl-3 text-left font-normal',
+                                !field.value && 'text-muted-foreground'
+                              )}
+                            >
+                              {field.value ? (
+                                format(new Date(field.value), 'yyyy-MM-dd')
+                              ) : (
+                                <span>选择日期</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={
+                              field.value ? new Date(field.value) : undefined
+                            }
+                            onSelect={(date) =>
+                              field.onChange(
+                                date ? format(date, 'yyyy-MM-dd') : ''
+                              )
+                            }
+                            disabled={(date) =>
+                              date > new Date() || date < new Date('2024-01-01')
+                            }
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormDescription>选择需要记录的日期</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="electricity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>电量</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="请输入电量数值"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        输入当日电表读数，支持两位小数
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button type="submit">
+                    {fetcher.state === 'submitting' ? (
+                      <>
+                        <Loader className="mr-2 h-4 w-4 animate-spin" />
+                        提交中...
+                      </>
+                    ) : (
+                      '提交'
+                    )}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </div>
+      <div className="rounded-md border">
+        <Table>
+          <TableCaption>电费使用记录表</TableCaption>
+          <TableHeader>
             <TableRow>
-              <TableCell className="font-medium">{item.id}</TableCell>
-              <TableCell>{item.date}</TableCell>
-              <TableCell>{item.electricity}</TableCell>
-              <TableCell className="text-right">{item.diff}</TableCell>
+              <TableHead className="w-[80px]">ID</TableHead>
+              <TableHead>日期</TableHead>
+              <TableHead>电量 (度)</TableHead>
+              <TableHead className="text-right">差值</TableHead>
             </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loaderData.list.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell className="font-medium">{item.id}</TableCell>
+                <TableCell>{item.date}</TableCell>
+                <TableCell>{item.electricity}</TableCell>
+                <TableCell className="text-right">{item.diff || '-'}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
-        ))}
-      </Table>
+        </Table>
+      </div>
     </div>
   );
 }
