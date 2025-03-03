@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import * as React from 'react';
 import { format } from 'date-fns';
-import { Calendar as CalendarIcon, Loader } from 'lucide-react';
+import { Calendar as CalendarIcon, Loader, Pencil } from 'lucide-react';
 import { cn } from '~/lib/utils';
 import * as schema from '~/database/schema';
 
@@ -72,31 +72,50 @@ const formSchema = z.object({
     .regex(/^\d+(\.\d{1,2})?$/, {
       message: '请输入有效的数字，最多支持两位小数',
     }),
+  diff: z.string().optional(),
+  id: z.number().optional(),
 });
 
 export async function action({ request, context }: Route.ActionArgs) {
   const formData = await request.formData();
   const date = formData.get('date')?.toString().trim();
   const electricity = formData.get('electricity')?.toString().trim();
+  const diff = formData.get('diff')?.toString().trim() || 0;
+  const id = formData.get('id')?.toString().trim();
 
-  // 查询数据库中是否存在该日期
-  const existing = await context.db.query.dailyElectricityTable.findFirst({
-    where: eq(schema.dailyElectricityTable.date, date ?? ''),
-  });
+  if (id) {
+    // 更新数据库
+    await context.db
+      .update(schema.dailyElectricityTable)
+      .set({
+        date: date ?? '',
+        electricity: Number(electricity),
+        diff: Number(diff),
+      })
+      .where(eq(schema.dailyElectricityTable.id, Number(id)));
 
-  console.log('existing', existing);
-
-  if (existing) {
-    return data({ message: '该日期已存在' }, { status: 400 });
-  }
-
-  try {
-    await context.db.insert(schema.dailyElectricityTable).values({
-      date: date ?? '',
-      electricity: Number(electricity),
+    return data({ message: '更新成功', success: true }, { status: 200 });
+  } else {
+    // 查询数据库中是否存在该日期
+    const existing = await context.db.query.dailyElectricityTable.findFirst({
+      where: eq(schema.dailyElectricityTable.date, date ?? ''),
     });
-  } catch (error) {
-    return data({ message: '插入失败' }, { status: 400 });
+
+    console.log('existing', existing);
+
+    if (existing) {
+      return data({ message: '该日期已存在', success: false }, { status: 400 });
+    }
+
+    try {
+      await context.db.insert(schema.dailyElectricityTable).values({
+        date: date ?? '',
+        electricity: Number(electricity),
+        diff: Number(diff),
+      });
+    } catch (error) {
+      return data({ message: '插入失败', success: false }, { status: 400 });
+    }
   }
 }
 
@@ -118,6 +137,7 @@ export async function loader({ context }: Route.LoaderArgs) {
 export default function Home({ actionData, loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher();
   const [open, setOpen] = React.useState(false);
+  const [editId, setEditId] = React.useState<number | null>(null);
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -130,16 +150,21 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
   React.useEffect(() => {
     if (fetcher.state === 'idle') {
       if (fetcher.data) {
-        toast.error(fetcher.data.message);
-      } else {
-        toast.success('提交成功');
-        form.reset(); // 成功后重置表单
-        setOpen(false); // 关闭对话框
+        if (fetcher.data.success) {
+          toast.success(fetcher.data.message);
+          form.reset(); // 成功后重置表单
+          setOpen(false); // 关闭对话框
+        } else {
+          toast.error(fetcher.data.message);
+        }
       }
     }
   }, [fetcher.data, fetcher.state]);
 
-  const onSubmit = (data: z.infer<typeof formSchema>) => {
+  const handleSubmit = (data: z.infer<typeof formSchema>) => {
+    if (editId) {
+      data.id = editId;
+    }
     fetcher.submit(data, {
       method: 'post',
     });
@@ -163,7 +188,7 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
             </DialogHeader>
             <Form {...form}>
               <form
-                onSubmit={form.handleSubmit(onSubmit)}
+                onSubmit={form.handleSubmit(handleSubmit)}
                 className="space-y-6"
               >
                 <FormField
@@ -235,6 +260,27 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="diff"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>差值</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="请输入差值数值"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        输入上日与当日电表读数差值，支持两位小数
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <DialogFooter>
                   <Button type="submit">
                     {fetcher.state === 'submitting' ? (
@@ -260,7 +306,8 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
               <TableHead className="w-[80px]">ID</TableHead>
               <TableHead>日期</TableHead>
               <TableHead>电量 (度)</TableHead>
-              <TableHead className="text-right">差值</TableHead>
+              <TableHead>差值</TableHead>
+              <TableHead className="text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -269,7 +316,22 @@ export default function Home({ actionData, loaderData }: Route.ComponentProps) {
                 <TableCell className="font-medium">{item.id}</TableCell>
                 <TableCell>{item.date}</TableCell>
                 <TableCell>{item.electricity}</TableCell>
-                <TableCell className="text-right">{item.diff || '-'}</TableCell>
+                <TableCell>{item.diff || '-'}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant={'outline'}
+                    size={'icon'}
+                    onClick={() => {
+                      setOpen(true);
+                      form.setValue('date', item.date);
+                      form.setValue('electricity', item.electricity.toString());
+                      form.setValue('diff', item.diff || 0);
+                      setEditId(item.id);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
